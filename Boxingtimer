@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Box Intervall Timer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+        h1 { margin-bottom: 20px; font-size: 24px; color: #ff5722; }
+        .input-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 5px;
+            color: #b0b0b0;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            background: #2d2d2d;
+            border: 1px solid #444;
+            color: white;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .timer-display {
+            margin: 30px 0;
+            padding: 20px;
+            border-radius: 12px;
+            background: #2d2d2d;
+        }
+        #statusText {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        #timeDisplay {
+            font-size: 64px;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        #roundDisplay {
+            font-size: 16px;
+            color: #b0b0b0;
+            margin-top: 10px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #startBtn { background-color: #4CAF50; color: white; }
+        #pauseBtn { background-color: #ff9800; color: white; }
+        #resetBtn { background-color: #f44336; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Box Intervall Timer</h1>
+    
+    <div id="setupView">
+        <div class="input-group">
+            <label for="roundsInput">Anzahl Runden:</label>
+            <input type="number" id="roundsInput" value="3" min="1">
+        </div>
+        <div class="input-group">
+            <label for="workInput">Arbeitsphase (Sekunden):</label>
+            <input type="number" id="workInput" value="30" min="1">
+        </div>
+        <div class="input-group">
+            <label for="restInput">Pause (Sekunden):</label>
+            <input type="number" id="restInput" value="30" min="1">
+        </div>
+        <button id="startBtn" onclick="startTimer()">Starten</button>
+    </div>
+
+    <div id="timerView" style="display:none;">
+        <div class="timer-display" id="displayBox">
+            <div id="statusText">Bereit</div>
+            <div id="timeDisplay">00:00</div>
+            <div id="roundDisplay">Runde 1 / 3</div>
+        </div>
+        <div class="btn-group">
+            <button id="pauseBtn" onclick="togglePause()">Pause</button>
+            <button id="resetBtn" onclick="resetTimer()">Reset</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let audioCtx = null;
+    let timerInterval = null;
+    let currentRound = 1;
+    let totalRounds = 3;
+    let workTime = 30;
+    let restTime = 30;
+    let currentTime = 30;
+    let isWorkPhase = true;
+    let isPaused = false;
+    let isRunning = false;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    // 1 Sekunde langer Ton
+    function playBeep(frequency = 800) {
+        initAudio();
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        
+        let oscillator = audioCtx.createOscillator();
+        let gainNode = audioCtx.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        
+        // Ton für genau 1 Sekunde abspielen
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 1.0);
+    }
+
+    function startTimer() {
+        initAudio();
+        totalRounds = parseInt(document.getElementById('roundsInput').value) || 3;
+        workTime = parseInt(document.getElementById('workInput').value) || 30;
+        restTime = parseInt(document.getElementById('restInput').value) || 30;
+
+        currentRound = 1;
+        isWorkPhase = true;
+        currentTime = workTime;
+        isRunning = true;
+        isPaused = false;
+
+        document.getElementById('setupView').style.display = 'none';
+        document.getElementById('timerView').style.display = 'block';
+        document.getElementById('pauseBtn').innerText = 'Pause';
+
+        updateDisplay();
+        
+        // Start-Signal (1 Sekunde Ton)
+        playBeep(600);
+
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    function updateTimer() {
+        if (isPaused) return;
+
+        if (currentTime > 0) {
+            currentTime--;
+            updateDisplay();
+        } else {
+            // Phasenwechsel
+            if (isWorkPhase && restTime > 0) {
+                // Wechsel von Arbeit zu Pause
+                isWorkPhase = false;
+                currentTime = restTime;
+                playBeep(400); // Tieferer Ton für Pause
+            } else {
+                // Nächste Runde oder Ende
+                if (currentRound < totalRounds) {
+                    currentRound++;
+                    isWorkPhase = true;
+                    currentTime = workTime;
+                    playBeep(600); // Ton für neue Runde
+                } else {
+                    // Training beendet
+                    clearInterval(timerInterval);
+                    isRunning = false;
+                    playBeep(1000);
+                    document.getElementById('statusText').innerText = 'Training Beendet!';
+                    document.getElementById('timeDisplay').innerText = '00:00';
+                    document.getElementById('pauseBtn').disabled = true;
+                    return;
+                }
+            }
+            updateDisplay();
+        }
+    }
+
+    function updateDisplay() {
+        const statusText = document.getElementById('statusText');
+        const displayBox = document.getElementById('displayBox');
+        
+        if (isWorkPhase) {
+            statusText.innerText = `Runde ${currentRound} - Arbeit`;
+            displayBox.style.background = '#2c1515'; // Leicht rötlich
+        } else {
+            statusText.innerText = `Runde ${currentRound} - Pause`;
+            displayBox.style.background = '#152c15'; // Leicht grünlich
+        }
+
+        document.getElementById('timeDisplay').innerText = formatTime(currentTime);
+        document.getElementById('roundDisplay').innerText = `Runde ${currentRound} von ${totalRounds}`;
+    }
+
+    function formatTime(seconds) {
+        let mins = Math.floor(seconds / 60);
+        let secs = seconds % 60;
+        return (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+    }
+
+    function togglePause() {
+        isPaused = !isPaused;
+        document.getElementById('pauseBtn').innerText = isPaused ? 'Weiter' : 'Pause';
+    }
+
+    function resetTimer() {
+        clearInterval(timerInterval);
+        isRunning = false;
+        isPaused = false;
+        document.getElementById('setupView').style.display = 'block';
+        document.getElementById('timerView').style.display = 'none';
+        document.getElementById('pauseBtn').disabled = false;
+    }
+</script>
+
+</body>
+</html>
